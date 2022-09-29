@@ -47,7 +47,7 @@ no_electric <- cars_no_na %>% filter(Engine.Fuel.Type != 'electric')
 no_electric[which.max(no_electric$city.mpg),]
 no_electric[which.max(no_electric$highway.MPG),]
 cars_no_na[which.max(cars_no_na$highway.MPG),]
-cars_no_na <- cars_no_na[-c(1120),]
+cars_no_na <- cars_no_na[-c(1120),] # Wrong observation
 cars_no_na[which.max(cars_no_na$MSRP),]
 common_consumer <- cars_no_na %>% filter(MSRP < 100000)
 weird <- cars_no_na %>% filter(Engine.Fuel.Type == '')
@@ -62,3 +62,26 @@ common_consumer %>% ggplot(aes(y = MSRP, fill = Engine.Cylinders, x = Popularity
 cars_no_na %>% ggplot(aes(y = MSRP, fill = Engine.Cylinders, x = Popularity)) + geom_boxplot() + ggtitle('Boxplot of Engine Cylinders and Popularity')
 common_consumer %>% ggplot(aes(y = MSRP, x = Popularity, fill = Engine.Fuel.Type)) + geom_boxplot()
 
+# Split Data
+set.seed(1234)
+splitPerc <- 0.80
+trainIndices <- sample(1:dim(cars_no_na)[1], round(splitPerc * dim(cars_no_na)[1]))
+train <- cars_no_na[trainIndices,]
+test <- cars_no_na[-trainIndices,]
+splitPerc <- 0.50
+trainIndices2 <- sample(1:dim(test)[1], round(splitPerc * dim(test)[1]))
+test_final <- test[trainIndices2,]
+validation <- test[-trainIndices2,]
+
+######################### Models #############################
+# LASSO
+x <- model.matrix(Popularity~., train)[,-1]
+y <- train$Popularity
+
+xtest <- model.matrix(Popularity~., validation)[,-1]
+ytest <- validation$Popularity
+
+grid <- 10^seq(10, -2, length=100)
+lasso.mod <- glmnet(x, y, alpha=1, lambda = grid)
+cv.out <- cv.glmnet(x, y, alpha = 1) #alpha=1 performs LASSO
+plot(cv.out)
