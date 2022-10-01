@@ -1,3 +1,8 @@
+library(tidyverse)
+library(glmnet)
+library(caret)
+library(ggplot2)
+library(FNN)
 setwd("C:\\Users\\Michael\\OneDrive\\Documents\\College\\SMU\\Applied Statistics")
 cars <- data.frame(read.csv('data1.csv'))
 cars$combined.mpg <- (cars$highway.MPG + cars$city.mpg) / 2
@@ -51,6 +56,18 @@ cars_no_na <- cars_no_na[-c(1120),] # Wrong observation
 cars_no_na[which.max(cars_no_na$MSRP),]
 common_consumer <- cars_no_na %>% filter(MSRP < 100000)
 weird <- cars_no_na %>% filter(Engine.Fuel.Type == '')
+cars_no_na$BeforeAfter2000 <- NA
+cars_no_na$BeforeAfter2000=ifelse(cars_no_na$Year<=2000,'Before','After')
+cars_no_na$BeforeAfter2000 <- as.factor(cars_no_na$BeforeAfter2000)
+# for(i in 1:nrow(cars_no_na)){
+#   if(cars_no_na$Year <= '2000'){
+#     cars_no_na$BeforeAfter2000[i] <- 0
+#   } else{
+#     cars_no_na$BeforeAfter2000[i] <- 1
+#   }
+# }
+write.csv(cars_no_na,'cars_no_na.csv', row.names = TRUE)
+
 
 # Plots
 cars_no_na %>% ggplot(aes(y = MSRP, x = Popularity)) + geom_point() + ggtitle('Popularity vs MSRP')
@@ -62,8 +79,11 @@ common_consumer %>% ggplot(aes(y = MSRP, fill = Engine.Cylinders, x = Popularity
 cars_no_na %>% ggplot(aes(y = MSRP, fill = Engine.Cylinders, x = Popularity)) + geom_boxplot() + ggtitle('Boxplot of Engine Cylinders and Popularity')
 common_consumer %>% ggplot(aes(y = MSRP, x = Popularity, fill = Engine.Fuel.Type)) + geom_boxplot()
 
+# Transform data
+
+
 # Split Data
-set.seed(1234)
+set.seed(777)
 splitPerc <- 0.80
 trainIndices <- sample(1:dim(cars_no_na)[1], round(splitPerc * dim(cars_no_na)[1]))
 train <- cars_no_na[trainIndices,]
@@ -75,13 +95,44 @@ validation <- test[-trainIndices2,]
 
 ######################### Models #############################
 # LASSO
-x <- model.matrix(Popularity~., train)[,-1]
+x <- model.matrix(MSRP~., train)[,-1]
 y <- train$Popularity
 
-xtest <- model.matrix(Popularity~., validation)[,-1]
+xtest <- model.matrix(MSRP~., validation)[,-1]
 ytest <- validation$Popularity
 
 grid <- 10^seq(10, -2, length=100)
 lasso.mod <- glmnet(x, y, alpha=1, lambda = grid)
 cv.out <- cv.glmnet(x, y, alpha = 1) #alpha=1 performs LASSO
 plot(cv.out)
+
+fit2 <- lm(MSRP ~ Make + Market.Category + Engine.HP + Engine.Cylinders + BeforeAfter2000 + Engine.Fuel.Type, data = train)
+summary(fit2)
+prediction <- (predict(fit2,newdata=validation))
+# row.names(prediction) <- NULL
+
+# Confusion matrix
+confusionMatrix(table(prediction, validation$MSRP))
+createConfusionMatrix <- function(act, pred) {
+  # You've mentioned that neither actual nor predicted may give a complete
+  # picture of the available classes, hence:
+  numClasses <- max(act, pred)
+  # Sort predicted and actual as it simplifies what's next. You can make this
+  # faster by storing `order(act)` in a temporary variable.
+  pred <- pred[order(act)]
+  act  <- act[order(act)]
+  sapply(split(pred, act), tabulate, nbins=numClasses)
+}
+createConfusionMatrix(prediction$`predict(fit2, newdata = validation)`, validation$MSRP)
+# gmodels::CrossTable(prediction, validation$MSRP)
+
+# R2
+resids <- prediction-validation$MSRP
+SSR <- sum(resids^2)
+SSE <- sum((prediction-mean(validation$MSRP))^2)
+R2 <- 1-(SSR/SSE)
+
+# Plots 2
+plot(fit2)
+ols_plot_cooksd_bar(fit2)
+ols_plot_resid_lev(fit2)
