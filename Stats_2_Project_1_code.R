@@ -3,6 +3,8 @@ library(glmnet)
 library(caret)
 library(ggplot2)
 library(FNN)
+library(jtools)
+library(interactions)
 setwd("C:\\Users\\Michael\\OneDrive\\Documents\\College\\SMU\\Applied Statistics")
 cars <- data.frame(read.csv('data1.csv'))
 cars$combined.mpg <- (cars$highway.MPG + cars$city.mpg) / 2
@@ -69,15 +71,19 @@ cars_no_na$BeforeAfter2000 <- as.factor(cars_no_na$BeforeAfter2000)
 write.csv(cars_no_na,'cars_no_na.csv', row.names = TRUE)
 
 
-# Plots
+########################### Plots ##############################
+cars_no_na %>% ggplot(aes(y = MSRP, x = Popularity)) + geom_point() + ggtitle('Popularity vs MSRP')
 cars_no_na %>% ggplot(aes(y = MSRP, x = Popularity)) + geom_point() + ggtitle('Popularity vs MSRP')
 cars_no_na %>% ggplot(aes(x = Year, y = MSRP, color = Popularity)) + geom_jitter() + ggtitle('Change in MSRP and Popularity Over Time')
 common_consumer %>% ggplot(aes(x = Year, y = MSRP, color = Popularity)) + geom_point() + ggtitle('Change in MSRP and Popularity Over Time')
 common_consumer %>% ggplot(aes(x = combined.mpg, y = MSRP, color = Popularity)) + geom_point() + ggtitle('Change in MSRP and Combined MPG')
 cars_no_na %>% ggplot(aes(x = combined.mpg, y = MSRP, color = Popularity)) + geom_point() + ggtitle('Change in MSRP and Combined MPG')
+common_consumer %>% ggplot(aes(x = combined.mpg, y = MSRP, color = Popularity)) + geom_point() + ggtitle('Change in MSRP and Combined MPG')
 common_consumer %>% ggplot(aes(y = MSRP, fill = Engine.Cylinders, x = Popularity)) + geom_boxplot() + ggtitle('Boxplot of Engine Cylinders and Popularity')
 cars_no_na %>% ggplot(aes(y = MSRP, fill = Engine.Cylinders, x = Popularity)) + geom_boxplot() + ggtitle('Boxplot of Engine Cylinders and Popularity')
 common_consumer %>% ggplot(aes(y = MSRP, x = Popularity, fill = Engine.Fuel.Type)) + geom_boxplot()
+cars_no_na %>% ggplot(aes(y= Engine.HP, x = Market.Category, fill = Market.Category)) + geom_boxplot() + ggtitle('Engine.HP vs Market.Category')
+cars_no_na %>% ggplot(aes(y = city.mpg, x = Transmission.Type, fill = Transmission.Type)) + geom_boxplot()
 
 # Transform data
 
@@ -105,10 +111,16 @@ grid <- 10^seq(10, -2, length=100)
 lasso.mod <- glmnet(x, y, alpha=1, lambda = grid)
 cv.out <- cv.glmnet(x, y, alpha = 1) #alpha=1 performs LASSO
 plot(cv.out)
+bestlambda <- cv.out$lambda.min
+lasso.pred <- predict(lasso.mod, s=bestlambda, newx=xtest)
+testMSE_LASSO <- mean((ytest-lasso.pred)^2)
+testMSE_LASSO
+coef(lasso.mod, s=bestlambda)
 
 fit2 <- lm(MSRP ~ Make + Market.Category + Engine.HP + Engine.Cylinders + BeforeAfter2000 + Engine.Fuel.Type, data = train)
 summary(fit2)
 prediction <- (predict(fit2,newdata=validation))
+validation_MSE <- mean((validation$MSRP-prediction)^2)
 # row.names(prediction) <- NULL
 
 # Confusion matrix
@@ -127,12 +139,63 @@ createConfusionMatrix(prediction$`predict(fit2, newdata = validation)`, validati
 # gmodels::CrossTable(prediction, validation$MSRP)
 
 # R2
-resids <- prediction-validation$MSRP
-SSR <- sum(resids^2)
-SSE <- sum((prediction-mean(validation$MSRP))^2)
-R2 <- 1-(SSR/SSE)
+r2 <- function(prediction){
+  resids <- prediction-validation$MSRP
+  SSR <- sum(resids^2)
+  SSE <- sum((prediction-mean(validation$MSRP))^2)
+  R2 <- 1-(SSR/SSE)
+  R2
+}
 
 # Plots 2
 plot(fit2)
 ols_plot_cooksd_bar(fit2)
 ols_plot_resid_lev(fit2)
+
+# LM Model 2
+fit3 <- lm(MSRP ~ Engine.HP * Engine.Cylinders, data = train)
+interact_plot(fit3, pred = Engine.HP, modx = Engine.Cylinders, plot.points = TRUE)
+
+fit4 <- lm(MSRP ~ Make + Market.Category + Engine.HP + Engine.Cylinders + BeforeAfter2000 + Engine.Fuel.Type + (Engine.Cylinders * Engine.HP) + (Engine.HP * Market.Category), data = train)
+summary(fit4)
+prediction4 <- (predict(fit4,newdata=validation))
+validation_MSE_4 <- mean((validation$MSRP-prediction4)^2)
+r2(prediction4)
+plot(fit4)
+
+########## KNN Regression #############
+X_train <- train
+X_train <- sapply(X_train, unclass)
+Y_train <- as.data.frame(X_train) %>% select(c(MSRP))
+X_train <- as.data.frame(X_train) %>% select(-c(MSRP))
+validation_knn <- sapply(validation, unclass)
+validation_knn_Y <- as.data.frame(validation_knn) %>% select(MSRP)
+validation_knn <- as.data.frame(validation_knn) %>% select(-c(MSRP))
+fit5 <- FNN::knn.reg(train = X_train, test = validation_knn, y = Y_train, k = 6)
+rmse = function(actual, predicted) {
+  sqrt(mean((actual - predicted) ^ 2))
+}
+make_knn_pred = function(k = 1) {
+  pred = FNN::knn.reg(train = X_train, 
+                      test = validation_knn, 
+                      y = Y_train$MSRP, k = k)$pred
+  act  = validation_knn_Y$MSRP
+  paste0('RMSE: ', rmse(predicted = pred, actual = act))
+  resids <- pred-validation_knn_Y$MSRP
+  SSR <- sum(resids^2)
+  SSE <- sum((pred-mean(validation_knn_Y$MSRP))^2)
+  R2 <- 1-(SSR/SSE)
+  data.frame('R2' = R2, 'RMSE' = rmse(predicted = pred, actual = act), 'MSE' = (rmse(predicted = pred, actual = act))^2)
+}
+thing <- make_knn_pred(k=1)
+RMSE_1 <- thing$RMSE
+n <- 1
+for(i in 2:250){
+  print(i)
+  values <- make_knn_pred(k=i)
+  if(values$RMSE < RMSE_1){
+    n <- i
+    RMSE_1 <- values$RMSE
+  }
+}
+# k = 1
