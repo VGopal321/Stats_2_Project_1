@@ -124,18 +124,18 @@ validation_MSE <- mean((validation$MSRP-prediction)^2)
 # row.names(prediction) <- NULL
 
 # Confusion matrix
-confusionMatrix(table(prediction, validation$MSRP))
-createConfusionMatrix <- function(act, pred) {
-  # You've mentioned that neither actual nor predicted may give a complete
-  # picture of the available classes, hence:
-  numClasses <- max(act, pred)
-  # Sort predicted and actual as it simplifies what's next. You can make this
-  # faster by storing `order(act)` in a temporary variable.
-  pred <- pred[order(act)]
-  act  <- act[order(act)]
-  sapply(split(pred, act), tabulate, nbins=numClasses)
-}
-createConfusionMatrix(prediction$`predict(fit2, newdata = validation)`, validation$MSRP)
+# confusionMatrix(table(prediction, validation$MSRP))
+# createConfusionMatrix <- function(act, pred) {
+#   # You've mentioned that neither actual nor predicted may give a complete
+#   # picture of the available classes, hence:
+#   numClasses <- max(act, pred)
+#   # Sort predicted and actual as it simplifies what's next. You can make this
+#   # faster by storing `order(act)` in a temporary variable.
+#   pred <- pred[order(act)]
+#   act  <- act[order(act)]
+#   sapply(split(pred, act), tabulate, nbins=numClasses)
+# }
+# createConfusionMatrix(prediction$`predict(fit2, newdata = validation)`, validation$MSRP)
 # gmodels::CrossTable(prediction, validation$MSRP)
 
 # R2
@@ -171,31 +171,52 @@ X_train <- as.data.frame(X_train) %>% select(-c(MSRP))
 validation_knn <- sapply(validation, unclass)
 validation_knn_Y <- as.data.frame(validation_knn) %>% select(MSRP)
 validation_knn <- as.data.frame(validation_knn) %>% select(-c(MSRP))
-fit5 <- FNN::knn.reg(train = X_train, test = validation_knn, y = Y_train, k = 6)
-rmse = function(actual, predicted) {
+fit5 <- FNN::knn.reg(train = X_train, test = validation_knn, y = Y_train, k = 1)
+summary(fit5)
+
+rmse <- function(actual, predicted) {
   sqrt(mean((actual - predicted) ^ 2))
 }
-make_knn_pred = function(k = 1) {
-  pred = FNN::knn.reg(train = X_train, 
+make_knn_pred <- function(k = 1) {
+  pred <- FNN::knn.reg(train = X_train, 
                       test = validation_knn, 
                       y = Y_train$MSRP, k = k)$pred
-  act  = validation_knn_Y$MSRP
+  act  <- validation_knn_Y$MSRP
   paste0('RMSE: ', rmse(predicted = pred, actual = act))
   resids <- pred-validation_knn_Y$MSRP
   SSR <- sum(resids^2)
   SSE <- sum((pred-mean(validation_knn_Y$MSRP))^2)
   R2 <- 1-(SSR/SSE)
-  data.frame('R2' = R2, 'RMSE' = rmse(predicted = pred, actual = act), 'MSE' = (rmse(predicted = pred, actual = act))^2)
+  data.frame('k' = k, 'R2' = R2, 'RMSE' = rmse(predicted = pred, actual = act), 'MSE' = (rmse(predicted = pred, actual = act))^2)
 }
+
 thing <- make_knn_pred(k=1)
 RMSE_1 <- thing$RMSE
 n <- 1
-for(i in 2:250){
+k_values <- data.frame('k' = NULL, 'R2' = NULL, 'RMSE' = NULL, 'MSE' = NULL)
+for(i in 1:250){
   print(i)
   values <- make_knn_pred(k=i)
+  k_values <- rbind(k_values, values)
   if(values$RMSE < RMSE_1){
     n <- i
     RMSE_1 <- values$RMSE
   }
 }
-# k = 1
+optimal_k <- k_values %>% filter(MSE == min(k_values$MSE))
+pred <- FNN::knn.reg(train = X_train, 
+                     test = validation_knn, 
+                     y = Y_train$MSRP, k = 1)
+plot(X_train$Year, Y_train$MSRP)
+ORD <- order(validation_knn$Year)
+lines(validation_knn$Year[ORD], pred$pred[ORD], col = 'red')
+plot(X_train$Engine.HP, Y_train$MSRP)
+ORD2 <- order(validation_knn$Engine.HP)
+lines(validation_knn$Engine.HP[ORD2], pred$pred[ORD2], col = 'red')
+for(i in 1:ncol(X_train)){
+  # print(colnames(X_train[i]))
+  plot(x = X_train[,i], Y_train$MSRP, xlab = paste0(colnames(X_train[i])), ylab = 'MSRP')
+  title(main = paste0('MSRP vs ', colnames(X_train[i])))
+  ORD <- order(validation_knn[,i])
+  lines(validation_knn[,i][ORD], pred$pred[ORD], col = 'red')
+}
